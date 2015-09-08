@@ -13,107 +13,103 @@ require 'active_record'
 require 'bundler'
 require 'stringio'
 
-require 'datashift'
-require 'datashift_spree'
+require 'database_cleaner'
 
-require 'spree_helper'
+require 'spree'
 
 $:.unshift '.'  # 1.9.3 quite strict, '.' must be in load path for relative paths to work from here
     
+datashift_spec_base = File.expand_path( File.join(File.dirname(__FILE__), '..') )
 
-require 'active_record'
+require File.join(datashift_spec_base, 'lib/datashift_spree')   
 
-module ActiveSupport
-  class BufferedLogger
-    
-    alias_method :add_original, :add
-   
-    def add(severity, message = nil, progname = nil, &block)
-      return if @level && @level > severity
-      message = (message || (block && block.call) || progname).to_s
+require 'sandbox_helper'
 
-      level = {
-        0 => "DEBUG",
-        1 => "INFO",
-        2 => "WARN",
-        3 => "ERROR",
-        4 => "FATAL"
-      }[severity] || "U"
+puts "Running tests with ActiveSupport version : #{Gem.loaded_specs['active_support'].inspect}"
 
-      #message = "[%s: %s #%d] %s" % [level, Time.now.strftime("%m%d %H:%M:%S"),$$, message]
-      message = "[%s: %s] %s" % [level, Time.now.strftime("%m%d %H:%M:%S"), message]
+puts "Running tests with Rails version : #{Gem.loaded_specs['rails'].version.version.inspect}"
 
-      message = "#{message}\n" unless message[-1] == ?\n
-      
-      add_original(severity, "#{message}", progname)
-      
-    end
+def run_in(dir )
+  puts "RSpec .. running test in path [#{dir}]"
+  original_dir = Dir.pwd
+  begin
+    Dir.chdir dir
+    yield
+  ensure
+    Dir.chdir original_dir
   end
 end
 
 RSpec.configure do |config|
-  
+     
   config.before do
     ARGV.replace []
   end
 
-  def before_all_spree 
-  
-    puts "Before all Spree - boot spree rails app - version #{DataShift::SpreeHelper::version}"
-    
+  config.before(:suite) do
+    puts "Booting spree rails app - version #{DataShift::SpreeEcom::version}"
+
     # We are not a Spree project, so we implement a spree application of our own
-    if(DataShift::SpreeHelper::is_namespace_version )
+    if(DataShift::SpreeEcom::is_namespace_version )
       spree_boot
     else
       boot('test_spree_standalone')             # key to YAML db e.g  test_memory, test_mysql
     end
-        
-    puts "Testing Spree standalone - version #{DataShift::SpreeHelper::version}"
+
+    puts "Testing Spree standalone - version #{DataShift::SpreeEcom::version}"
+  end
+
+  config.before(:each) do
 
     set_spree_class_helpers
-    
-  end
-  
-  shared_context 'Populate dictionary ready for Product loading' do
-    
-    before do 
-      begin
-    
-        before_each_spree
 
-        @Image_klass.count.should == 0
-        @Product_klass.count.should == 0    
+    DatabaseCleaner.strategy = :transaction
+
+    DatabaseCleaner.start
+  end
+
+  config.after(:each) do
+    DatabaseCleaner.clean
+  end
+
+shared_context 'Populate dictionary ready for Product loading' do
+
+    set_spree_class_helpers
+
+    let(:product_klass) { DataShift::SpreeEcom::get_product_class }
+
+    let(:product_loader) { DataShift::SpreeEcom::ProductLoader.new(nil, :verbose => true) }
+
+    # %w{Image OptionType OptionValue Property ProductProperty Variant Taxon Taxonomy Zone}
+
+    let(:image_klass) {  DataShift::SpreeEcom::get_spree_class 'Image' }
+
+    @Product_klass = DataShift::SpreeEcom::get_product_class
+
+    #spree_klass_list.each do |k|
+    #  instance_variable_set("@#{k}_klass", DataShift::SpreeEcom::get_spree_class(k))
+    #end
+
+    before do
+      begin
 
         DataShift::MethodDictionary.clear
-      
+
         # For Spree important to get instance methods too as Product delegates
         # many important attributes to Variant (master)
-        DataShift::MethodDictionary.find_operators( @Product_klass, :instance_methods => true )
+        DataShift::MethodDictionary.find_operators( product_klass, :instance_methods => true )
 
-        DataShift::MethodDictionary.build_method_details( @Product_klass )
-        
+        DataShift::MethodDictionary.build_method_details( product_klass )
+
       rescue => e
         puts e.inspect
         puts e.backtrace
         raise e
       end
-        
-      @product_loader = DataShift::SpreeHelper::ProductLoader.new
     end
   end
 
-    
-  def run_in(dir )
-    puts "RSpec .. running test in path [#{dir}]"
-    original_dir = Dir.pwd
-    begin
-      Dir.chdir dir
-      yield
-    ensure
-      Dir.chdir original_dir
-    end
-  end
-  
+
   def capture(stream)
     begin
       stream = stream.to_s
@@ -128,6 +124,10 @@ RSpec.configure do |config|
   end
 
   alias :silence :capture  
+  
+  def rspec_spree_thor_path
+    @spec_thor_path ||= File.join( File.dirname(__FILE__), '..', 'lib', 'thor', 'spree')
+  end
   
   def fixtures_path()
     File.expand_path(File.dirname(__FILE__) + '/fixtures')
@@ -165,7 +165,6 @@ RSpec.configure do |config|
   end
   
 
-  
   def spree_fixture( source)
     ifixture_file(source)
   end
@@ -181,44 +180,20 @@ RSpec.configure do |config|
       exit e.status_code
     end
   end
-  
-  # SPREE
-  def spree_sandbox_path
-    File.join(File.dirname(__FILE__), 'sandbox')
-  end
-      
-
-  
-  def before_each_spree
-      
-    # Reset main tables - TODO should really purge properly, or roll back a transaction      
-    @Product_klass.delete_all
     
-    @spree_klass_list.each do |k| z = DataShift::SpreeHelper::get_spree_class(k); 
-      if(z.nil?)
-        puts "WARNING: Failed to find expected Spree CLASS #{k}" 
-      else
-        DataShift::SpreeHelper::get_spree_class(k).delete_all 
-      end
-    end
+  def before_each_spree
+    # replaced by proper database cleaner
   end
-  
-  def spec_helper_log
-    @spec_helper_log ||= ""
-  end
+
   
   def set_logger( name = 'datashift_spree_spec.log')
     
     require 'logger'
-    @spec_helper_logdir = File.dirname(__FILE__) + '/logs'
-    FileUtils.mkdir_p(@spec_helper_logdir) unless File.exists?(@spec_helper_logdir)
-    @spec_helper_log = File.join(@spec_helper_logdir, name)
-    
-    ActiveRecord::Base.logger = ActiveSupport::BufferedLogger.new( @spec_helper_log )
-
-    # Anyway to direct one logger to another ????? ... Logger.new(STDOUT) 
-    @dslog = ActiveRecord::Base.logger
+    logdir = File.join(File.dirname(__FILE__), 'log')
+    FileUtils.mkdir_p(logdir) unless File.exists?(logdir)
+    ActiveRecord::Base.logger = Logger.new( File.join(logdir, name) )
   end
+  
    
   def db_connect( env = 'development' )
     # Some active record stuff seems to rely on the RAILS_ENV being set ?
@@ -227,23 +202,24 @@ RSpec.configure do |config|
 
     configuration = {}
     
-    database_yml_path = File.join(spree_sandbox_path, 'config', 'database.yml')
+    database_yml_path = File.join(DataShift::SpreeEcom::spree_sandbox_path, 'config', 'database.yml')
     
     configuration[:database_configuration] = YAML::load( ERB.new( IO.read(database_yml_path) ).result )
     db = configuration[:database_configuration][ env ]
 
-    puts "Setting DB Config:", db.inspect
-    ActiveRecord::Base.configurations = db   
+    set_logger
     
     puts "Connecting to DB"
     
     ActiveRecord::Base.establish_connection( db )
-
+          
     puts "Connected to DB"
   end
   
-  # Datashift is usually included and tasks pulled in by a parent/host application.
-  # So here we are hacking our way around the fact that datashift is not a Rails/Spree app/engine
+  # Datashift is NOT a Rails engine. It can be used in any Ruby project,
+  # pulled in by a parent/host application via standard Gemfile
+  # 
+  # Here we have to hack our way around the fact that datashift is not a Rails/Spree app/engine
   # so that we can ** run our specs ** directly in datashift library
   # i.e without ever having to install datashift in a host application
   #
@@ -253,26 +229,32 @@ RSpec.configure do |config|
     
   def spree_boot()
     
-    spree_sandbox_app_path = spree_sandbox_path
+    spree_sandbox_app_path = DataShift::SpreeEcom::spree_sandbox_path
         
     unless(File.exists?(spree_sandbox_app_path))
-      puts "Creating new Rails sandbox for Spree : #{spree_sandbox_app_path}"
+      puts "Creating new Rails sandbox for Spree : #{spree_sandbox_app_path}" 
+
+      require 'sandbox_helper'
+     
+      DataShift::SpreeEcom::build_sandbox
       
-      run_in(File.expand_path( "#{spree_sandbox_app_path}/..")) {
-        system('rails new sandbox')
-      }
+       original_dir = Dir.pwd
       
-      run_in(spree_sandbox_app_path) {
-        system('spree install')      
       
-        # add in User model if new 1.2 version which splits out Auth from spree core
-        if(DataShift::SpreeHelper::version.to_f >= 1.2)
-          append_file('Gemfile', "gem 'spree_auth_devise', :git => \"git://github.com/spree/spree_auth_devise\"" )
-          
-          system('bundle install')   
-        end
-      }
+      # TOFIX - this don't work ... but works if run straight after the task
+      # maybe the env not right using system ?
+      begin
+        Dir.chdir DataShift::SpreeEcom::spree_sandbox_path
+        puts "Running bundle install"
+        system('bundle install')   
+        
+        puts "Running rake db:migrate"
+        system('bundle exec rake db:migrate')     
+      ensure
+        Dir.chdir original_dir
+      end
     end
+
   
     puts "Using Rails sandbox for Spree : #{spree_sandbox_app_path}"
         
@@ -281,31 +263,31 @@ RSpec.configure do |config|
       puts "Running db_connect from #{Dir.pwd}"
        
       db_connect
-          
+        
+      require 'spree'
+      
       begin
-        require 'config/environment.rb'
-        puts "Booted Spree using version #{DataShift::SpreeHelper::version}"
+        puts "Booting Spree #{DataShift::SpreeEcom::version} in sandbox"
+        load 'config/environment.rb'
+        puts "Booted Spree using version #{DataShift::SpreeEcom::version}"
       rescue => e
         #somethign in deface seems to blow up suddenly on 1.1
         puts "Warning - Potential issue initializing Spree sandbox:"
         puts e.backtrace
         puts "#{e.inspect}"
       end
-        
-      set_logger( 'spree_sandbox.log' )
-        
     }
      
-    @dslog.info "Booted Spree using version #{DataShift::SpreeHelper::version}"
+    puts "Booted Spree using version #{DataShift::SpreeEcom::version}"
   end
       
   def set_spree_class_helpers
     @spree_klass_list  =  %w{Image OptionType OptionValue Property ProductProperty Variant Taxon Taxonomy Zone}
     
-    @Product_klass = DataShift::SpreeHelper::get_product_class  
+    @Product_klass = DataShift::SpreeEcom::get_product_class
   
     @spree_klass_list.each do |k|
-      instance_variable_set("@#{k}_klass", DataShift::SpreeHelper::get_spree_class(k)) 
+      instance_variable_set("@#{k}_klass", DataShift::SpreeEcom::get_spree_class(k))
     end
   end
   
@@ -313,9 +295,9 @@ RSpec.configure do |config|
   
     ActiveRecord::Base.clear_active_connections!() 
       
-    unless(DataShift::SpreeHelper::is_namespace_version)
+    unless(DataShift::SpreeEcom::is_namespace_version)
         
-      DataShift::SpreeHelper::load() 
+      DataShift::SpreeEcom::load()
         
       db_connect( database_env )
       @dslog.info "Booting Spree using pre 1.0.0 version"
@@ -398,8 +380,8 @@ RSpec.configure do |config|
   end
   
   def self.load_models( report_errors = nil )
-    puts 'Loading Spree models from', DataShift::SpreeHelper::root
-    Dir[DataShift::SpreeHelper::root + '/app/models/**/*.rb'].each {|r|
+    puts 'Loading Spree models from', DataShift::SpreeEcom::root
+    Dir[DataShift::SpreeEcom::root + '/app/models/**/*.rb'].each {|r|
       begin
         require r if File.file?(r)
       rescue => e
@@ -409,7 +391,7 @@ RSpec.configure do |config|
   end
 
   def self.migrate_up
-    ActiveRecord::Migrator.up( File.join(DataShift::SpreeHelper::root, 'db/migrate') )
+    ActiveRecord::Migrator.up( File.join(DataShift::SpreeEcom::root, 'db/migrate') )
   end
 
 end

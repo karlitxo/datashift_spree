@@ -4,12 +4,19 @@ Specific loaders and command line tasks for Spree E-Commerce.
 
 Wiki here : **https://github.com/autotelik/datashift_spree/wiki**
 
+### Versions
+
+The loaders have been tested with 0.11, 1.3 and 2.2
+
+The specs have been designed to use an internal Spree sandbox so it's 
+easy to change the Spree version and re-run the specs. See Testing section below.
+
 ### Features
 
 Import and Export Spree models through .xls or CSV  files, including
 all associations and setting configurable defaults or over rides.
 
-High level rake and thor command line tasks for import/export provided.
+High level thor command line tasks for import/export provided.
 
 Specific loaders and command line tasks provided out the box for **Spree E-Commerce**, 
 enabling import/export of Product data including creating Variants with different
@@ -36,7 +43,7 @@ require 'datashift'
 require 'datashift_spree'
 
 DataShift::load_commands
-DataShift::SpreeHelper::load_commands
+DataShift::SpreeEcom::load_commands
 ```
 
 To check the available tasks run thor list with a search term, for example
@@ -71,6 +78,42 @@ Options:
    Populate Spree Product/Variant data from .xls (Excel) or CSV file
 ```
 
+## Testing
+
+There are a number of specs to test this gem, located in the spec subdirectory.
+
+To properly test this gem we require an actual Spree store, so when the specs are first run 
+we create a sandbox Rails app, containing a Spree store, whose version we can control in spec/Gemfile
+
+It's therefor recommended that all testing be done in spec dir itself, so first cd into spec
+
+Define the version of Spree to test against, in the Gemfile, then run
+
+```ruby 
+    cd spec
+    bundle install
+```
+
+If changing Spree versions, it's best to force a rebuild of a clean sandbox, and often removing Gemfile.lock will resolve any funny version issues,
+ so  run:
+
+```ruby 
+    cd spec
+    rm -rf sandbox
+    rm -rf Gemfile.lock
+```
+
+Change Gemfile versions and run
+
+```ruby 
+    bundle install
+```
+ 
+The next time you run rspec the sandbox will be regenerated using the latest versions of Rails/Spree specified in your Gemfile
+
+```ruby 
+    bundle exec rspec -c .
+```
 
 ## License
 

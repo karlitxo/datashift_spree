@@ -4,10 +4,12 @@
 # License::   MIT. Free, Open Source.
 #
 require 'loader_base'
+require 'spree_base_loader'
+#require 'paperclip/attachment_loader'
 
 module DataShift
 
-  module SpreeHelper
+  module SpreeEcom
       
     # Very specific Image Loading for existing Products in Spree. 
     #
@@ -20,19 +22,19 @@ module DataShift
   
       def initialize(image = nil, options = {})
         
-        super( DataShift::SpreeHelper::get_spree_class('Image'), true, image, options )
+        super( DataShift::SpreeEcom::get_spree_class('Image'), image, options )
          
         unless(MethodDictionary.for?(@@product_klass))
-          MethodDictionary.find_operators( @@product_klass )
+          ModelMethodsManager.find_methods( @@product_klass )
           MethodDictionary.build_method_details( @@product_klass )
         end
         
         unless(MethodDictionary.for?(@@variant_klass))
-          MethodDictionary.find_operators( @@variant_klass )
+          ModelMethodsManager.find_methods( @@variant_klass )
           MethodDictionary.build_method_details( @@variant_klass )
         end
     
-        puts "Attachment Class is #{SpreeHelper::product_attachment_klazz}" if(@verbose)
+        puts "Attachment Class is #{SpreeEcom::product_attachment_klazz}" if(@verbose)
       end
       
       # Load object not an Image - need to look it up via Name or SKU
@@ -57,19 +59,28 @@ module DataShift
       
       # Called from associated perform_xxxx_load 
          
-      def process()
+      # Over ride base class process with some Spree::Image specifics
+      #
+      # What process a value string from a column, assigning value(s) to correct association on Product.
+      # Method map represents a column from a file and it's correlated Product association.
+      # Value string which may contain multiple values for a collection (has_many) association.
+      #
+      def process(method_detail, value)  
         
+        raise ImageLoadError.new("Cannot process #{value} NO details found to assign to") unless(method_detail)
+
+        # TODO - start supporting assigning extra data via current_attribute_hash
+        current_value, current_attribute_hash = @populator.prepare_data(method_detail, value)
+        
+        operator = method_detail.operator
+                
         # TODO - current relies on correct order - i.e lookup column must come before attachment
-        
-        @@path_headers ||= ['attachment', 'images', 'path']
-           
-        operator = @current_method_detail.operator
         
         if(current_value && ImageLoader::acceptable_path_headers.include?(operator) )
          
           add_images( @load_object ) if(@load_object)
           
-        elsif(current_value && @current_method_detail.operator )    
+        elsif(current_value && method_detail.operator )    
           
           # find the db record to assign our Image usually expect either SKU (Variant) or Name (product)
           if( MethodDictionary::find_method_detail_if_column(@@product_klass, operator) )

@@ -23,19 +23,26 @@ module DataShift
 
     # depending on version get_product_class should return us right class, namespaced or not
 
-    def initialize(klass, find_operators = true, loader_object = nil, options = {:instance_methods => true})
+    def initialize(klass, loader_object = nil, options = {})
 
-      super(klass, find_operators, loader_object, options)
+      super(klass, loader_object, options)
 
-      @@image_klass ||= DataShift::SpreeHelper::get_spree_class('Image')
-      @@option_type_klass ||= DataShift::SpreeHelper::get_spree_class('OptionType')
-      @@option_value_klass ||= DataShift::SpreeHelper::get_spree_class('OptionValue')
-      @@product_klass ||= DataShift::SpreeHelper::get_spree_class('Product')
-      @@property_klass ||= DataShift::SpreeHelper::get_spree_class('Property')
-      @@product_property_klass ||= DataShift::SpreeHelper::get_spree_class('ProductProperty')
-      @@taxonomy_klass ||= DataShift::SpreeHelper::get_spree_class('Taxonomy')
-      @@taxon_klass ||= DataShift::SpreeHelper::get_spree_class('Taxon')
-      @@variant_klass ||= DataShift::SpreeHelper::get_spree_class('Variant')
+      logger.info "Spree Loading initialised with:\n#{options.inspect}"
+
+      #TODO - ditch this backward compatability now and just go with namespaced ?
+      #
+      @@image_klass ||= DataShift::SpreeEcom::get_spree_class('Image')
+      @@option_type_klass ||= DataShift::SpreeEcom::get_spree_class('OptionType')
+      @@option_value_klass ||= DataShift::SpreeEcom::get_spree_class('OptionValue')
+      @@product_klass ||= DataShift::SpreeEcom::get_spree_class('Product')
+      @@property_klass ||= DataShift::SpreeEcom::get_spree_class('Property')
+      @@product_property_klass ||= DataShift::SpreeEcom::get_spree_class('ProductProperty')
+      @@stock_location_klass ||= DataShift::SpreeEcom::get_spree_class('StockLocation')
+      @@stock_movement_klass ||= DataShift::SpreeEcom::get_spree_class('StockMovement')
+      @@taxonomy_klass ||= DataShift::SpreeEcom::get_spree_class('Taxonomy')
+      @@taxon_klass ||= DataShift::SpreeEcom::get_spree_class('Taxon')
+      @@variant_klass ||= DataShift::SpreeEcom::get_spree_class('Variant')
+
     end
 
     
@@ -44,10 +51,12 @@ module DataShift
     #                        e,g to specifiy particular drive  {:image_path_prefix => 'C:\' }
     #
     def perform_load( file_name, opts = {} )
-      @options = opts.dup
-
-      super(file_name, @options)
+      logger.info "SpreeBaseLoader - starting load from file [#{file_name}]"
+      super(file_name, opts)
     end
+
+    # TOFIX - why is this in the base class when it looks like tis Prod/Vars ?
+    # either move it or make it generic so the owner can be any model that supports attachments
   
     # Special case for Images
     #
@@ -66,12 +75,12 @@ module DataShift
       #save_if_new
 
       # different versions have moved images around from Prod to Variant
-      owner = DataShift::SpreeHelper::get_image_owner(record)
+      owner = DataShift::SpreeEcom::get_image_owner(record)
 
-      get_each_assoc.each do |image|
+      #get_each_assoc.each do |image|
+      # multiple files should maintain comma separated logic with 'Delimiters::multi_value_delim' and not 'Delimiters::multi_assoc_delim'
+      @populator.current_value.to_s.split(Delimiters::multi_value_delim).each do |image|
 
-        logger.debug("Processing IMAGE from #{image.inspect}")
-             
         #TODO - make this Delimiters::attributes_start_delim and support {alt=> 'blah, :position => 2 etc}
 
         # Test and code for this saved at : http://www.rubular.com/r/1de2TZsVJz
@@ -84,11 +93,12 @@ module DataShift
           
           uri.strip!
           
-          logger.debug("Processing IMAGE from an URI #{uri.inspect} #{attributes.inspect}")
-          
+          logger.info("Processing IMAGE from URI [#{uri.inspect}]")
+
           if(attributes)
             #TODO move to ColumnPacker unpack ?
             attributes = attributes.split(', ').map{|h| h1,h2 = h.split('=>'); {h1.strip! => h2.strip!}}.reduce(:merge)
+            logger.debug("IMAGE has additional attributes #{attributes.inspect}")
           else
             attributes = {} # will blow things up later if we pass nil where {} expected
           end
@@ -102,12 +112,16 @@ module DataShift
             raise DataShift::BadUri.new("Failed to fetch image from URL #{uri}")
           end
   
-          # Expected class Mechanize::Image 
-  
-          # there is also an method called image.extract_filename - not sure of difference
-          extname = image.respond_to?(:filename) ? File.extname(image.filename) : File.extname(uri)
+          # Expected image is_a Mechanize::Image
+          # image.filename& image.extract_filename do not handle query string well e,g blah.jpg?v=1234
+          # so for now use URI
+          # extname = image.respond_to?(:filename) ? File.extname(image.filename) : File.extname(uri)
+          extname =  File.extname( uri.gsub(/\?.*=.*/, ''))
+
           base = image.respond_to?(:filename) ? File.basename(image.filename, '.*') : File.basename(uri, '.*')
-          
+
+          logger.debug("Storing Image in TempFile #{base.inspect}.#{extname.inspect}")
+
           @current_image_temp_file = Tempfile.new([base, extname], :encoding => 'ascii-8bit')
                     
           begin
@@ -123,11 +137,12 @@ module DataShift
             
             @current_image_temp_file.rewind
 
-            # create_attachment(klass, attachment_path, record = nil, attach_to_record_field = nil, options = {})
-            attachment = create_attachment(@@image_klass, @current_image_temp_file.path, nil, nil, attributes)
+            logger.info("IMAGE downloaded from URI #{uri.inspect}")
+
+            attachment = create_attachment(Spree::Image, @current_image_temp_file.path, nil, nil, attributes)
             
           rescue => e
-            puts "ERROR: Failed to process image from URL #{uri}", e.message
+            logger.error(e.message)
             logger.error("Failed to create Image from URL #{uri}")
             raise DataShift::DataProcessingError.new("Failed to create Image from URL #{uri}")
        
@@ -142,10 +157,10 @@ module DataShift
 
           logger.debug("Processing IMAGE from PATH #{path.inspect} #{alt_text.inspect}")
           
-          path = File.join(@options[:image_path_prefix], path) if(@options[:image_path_prefix])
+          path = File.join(config[:image_path_prefix], path) if(config[:image_path_prefix])
 
           # create_attachment(klass, attachment_path, record = nil, attach_to_record_field = nil, options = {})
-          attachment = create_attachment(@@image_klass, path, nil, nil, :alt => alt_text)
+          attachment = create_attachment(Spree::Image, path, nil, nil, :alt => alt_text)
         end 
 
         begin

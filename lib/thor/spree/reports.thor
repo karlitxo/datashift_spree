@@ -8,8 +8,6 @@
 # bundle exec thor datashift:spreeboot:cleanup
 #
 # Note, not DataShift, case sensitive, create namespace for command line : datashift
-
-require 'excel_exporter'
   
 module DatashiftSpree
         
@@ -21,13 +19,15 @@ module DatashiftSpree
     
       def no_image(report = nil)
 
-        require 'spree_helper'
+        require 'spree_ecom'
         require 'csv_exporter'
         require 'image_loader'
+        require 'exporters/excel_exporter'
+        require 'exporters/csv_exporter'
 
         require File.expand_path('config/environment.rb')
 
-        klass = DataShift::SpreeHelper::get_spree_class('Product')
+        klass = DataShift::SpreeEcom::get_spree_class('Product')
       
         missing = klass.all.find_all {|p| p.images.size == 0 }
       
