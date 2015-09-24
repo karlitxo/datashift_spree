@@ -4,9 +4,7 @@
 # License::   Free, Open Source.
 #
 
-module DataShift
-
-  module SpreeEcom
+module DataShift::SpreeEcom
 
     class ProductLoadError < DataShift::DataShiftException
       def initialize( msg )
@@ -20,5 +18,4 @@ module DataShift
       end
     end
     
-  end
 end
