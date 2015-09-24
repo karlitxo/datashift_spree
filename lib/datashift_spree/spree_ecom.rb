@@ -24,9 +24,7 @@
 require 'spree'
 require 'spree_core'
     
-module DataShift
-    
-  module SpreeEcom
+module DataShift::SpreeEcom
         
     def self.root
       Gem.loaded_specs['spree_core'] ? Gem.loaded_specs['spree_core'].full_gem_path  : ""
@@ -88,5 +86,4 @@ module DataShift
       require 'spree'
       require 'spree_core'
     end   
-  end
 end 
