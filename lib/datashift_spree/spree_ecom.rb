@@ -34,9 +34,9 @@ module DataShift::SpreeEcom
 
     def self.get_spree_class(x)
       if(is_namespace_version())    
-        ModelMapper::class_from_string("Spree::#{x}")
+        DataShift::ModelMapper::class_from_string("Spree::#{x}")
       else
-        ModelMapper::class_from_string(x.to_s)
+        Datashift::ModelMapper::class_from_string(x.to_s)
       end
     end
       
@@ -71,7 +71,7 @@ module DataShift::SpreeEcom
     end
     
     def self.is_namespace_version
-      SpreeEcom::version.to_f >= 1
+      DataShift::SpreeEcom::version.to_f >= 1
     end
   
     def self.lib_root
