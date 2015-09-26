@@ -59,7 +59,7 @@ module DataShift::SpreeEcom
     # for the callers version of Spree
     
     def self.get_image_owner(record)
-      if(SpreeEcom::version.to_f > 1)
+      if(DataShift::SpreeEcom::version.to_f > 1)
        record.is_a?(get_product_class) ? record.master : record     # owner is VARIANT
       else
         record.is_a?(get_product_class) ? record : record.product   # owner is PRODUCT
