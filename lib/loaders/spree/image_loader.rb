@@ -25,8 +25,8 @@ module DataShift
         super( DataShift::SpreeEcom::get_spree_class('Image'), image, options )
          
         unless(MethodDictionary.for?(@@product_klass))
-          DataShift::SpreeEcom::ModelMethodsManager.find_operators( @@product_klass )
-          DataShift::SpreeEcom::MethodDictionary.build_method_details( @@product_klass )
+          DataShift::ModelMethodsManager.find_operators( @@product_klass )
+          DataShift::MethodDictionary.build_method_details( @@product_klass )
         end
         
         unless(MethodDictionary.for?(@@variant_klass))
