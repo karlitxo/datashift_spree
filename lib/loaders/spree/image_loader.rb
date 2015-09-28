@@ -30,7 +30,7 @@ module DataShift
         end
         
         unless(MethodDictionary.for?(@@variant_klass))
-          ModelMethodsManager.find_operatorsx( @@variant_klass )
+          ModelMethodsManager.find_operators( @@variant_klass )
           MethodDictionary.build_method_details( @@variant_klass )
         end
     
